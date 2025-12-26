@@ -7,7 +7,7 @@ import mcp.types
 from pydantic import Field
 from rich.text import Text
 
-from openhands.sdk.llm import ImageContent, TextContent
+from openhands.sdk.llm import ImageContent, PDFContent, TextContent
 from openhands.sdk.logger import get_logger
 from openhands.sdk.tool import (
     Observation,
@@ -59,7 +59,7 @@ class MCPToolObservation(Observation):
         """Create an MCPToolObservation from a CallToolResult."""
 
         native_content: list[mcp.types.ContentBlock] = result.content
-        content: list[TextContent | ImageContent] = [
+        content: list[TextContent | ImageContent | PDFContent] = [
             TextContent(text=f"[Tool '{tool_name}' executed.]")
         ]
         for block in native_content:
@@ -103,4 +103,6 @@ class MCPToolObservation(Observation):
                     text.append(block.text + "\n")
             elif isinstance(block, ImageContent):
                 text.append(f"[Image with {len(block.image_urls)} URLs]\n")
+            elif isinstance(block, PDFContent):
+                text.append(f"[PDF with {len(block.pdf_urls)} documents]\n")
         return text

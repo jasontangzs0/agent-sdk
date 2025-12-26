@@ -7,7 +7,7 @@ from pydantic import ConfigDict, Field
 from rich.text import Text
 
 from openhands.sdk.event.types import EventID, SourceType
-from openhands.sdk.llm import ImageContent, Message, TextContent
+from openhands.sdk.llm import ImageContent, Message, PDFContent, TextContent
 from openhands.sdk.utils.models import DiscriminatedUnionMixin
 
 
@@ -74,6 +74,8 @@ class LLMConvertibleEvent(Event, ABC):
                     text_parts.append(content.text)
                 elif isinstance(content, ImageContent):
                     text_parts.append(f"[Image: {len(content.image_urls)} URLs]")
+                elif isinstance(content, PDFContent):
+                    text_parts.append(f"[PDF: {len(content.pdf_urls)} documents]")
 
             if text_parts:
                 content_preview = " ".join(text_parts)

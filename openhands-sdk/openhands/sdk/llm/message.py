@@ -204,13 +204,51 @@ class ImageContent(BaseContent):
         return images
 
 
+class PDFContent(BaseContent):
+    """PDF content for multimodal LLM messages.
+
+    Note: PDF input is only supported by specific models via litellm:
+    - Vertex AI models (Gemini + Anthropic)
+    - Bedrock Models
+    - Anthropic API Models
+    - OpenAI API Models
+    - Mistral (using file ID of already uploaded file)
+
+    The SDK will automatically check model support and only include PDF content
+    when the model supports it (via the pdf_enabled flag set by
+    LLM.format_messages_for_llm).
+    """
+
+    type: Literal["pdf"] = "pdf"
+    pdf_urls: list[str]  # List of PDF URLs (can be URLs, file IDs, or base64 data URIs)
+
+    def to_llm_dict(self) -> list[dict[str, str | dict[str, str]]]:
+        """Convert to LLM API format.
+
+        Uses litellm's file format:
+        {
+            "type": "file",
+            "file": {"file_id": url}
+        }
+        """
+        pdfs: list[dict[str, str | dict[str, str]]] = []
+        for url in self.pdf_urls:
+            pdfs.append({"type": "file", "file": {"file_id": url}})
+        if self.cache_prompt and pdfs:
+            pdfs[-1]["cache_control"] = {"type": "ephemeral"}
+        return pdfs
+
+
 class Message(BaseModel):
     # NOTE: this is not the same as EventSource
     # These are the roles in the LLM's APIs
     role: Literal["user", "system", "assistant", "tool"]
-    content: Sequence[TextContent | ImageContent] = Field(default_factory=list)
+    content: Sequence[TextContent | ImageContent | PDFContent] = Field(
+        default_factory=list
+    )
     cache_enabled: bool = False
     vision_enabled: bool = False
+    pdf_enabled: bool = False  # Separate flag for PDF support (subset of models)
     # function calling
     function_calling_enabled: bool = False
     # - tool calls (from LLM)
@@ -253,9 +291,15 @@ class Message(BaseModel):
     def contains_image(self) -> bool:
         return any(isinstance(content, ImageContent) for content in self.content)
 
+    @property
+    def contains_pdf(self) -> bool:
+        return any(isinstance(content, PDFContent) for content in self.content)
+
     @field_validator("content", mode="before")
     @classmethod
-    def _coerce_content(cls, v: Any) -> Sequence[TextContent | ImageContent] | Any:
+    def _coerce_content(
+        cls, v: Any
+    ) -> Sequence[TextContent | ImageContent | PDFContent] | Any:
         # Accept None → []
         if v is None:
             return []
@@ -272,7 +316,10 @@ class Message(BaseModel):
         - Tool result turn: role == "tool" and self.tool_call_id (with name)
         """
         if not self.force_string_serializer and (
-            self.cache_enabled or self.vision_enabled or self.function_calling_enabled
+            self.cache_enabled
+            or self.vision_enabled
+            or self.pdf_enabled
+            or self.function_calling_enabled
         ):
             message_dict = self._list_serializer()
         else:
@@ -336,11 +383,13 @@ class Message(BaseModel):
                 for d in item_dicts:
                     d.pop("cache_control", None)
 
-            # Handle vision-enabled filtering for ImageContent
+            # Handle vision-enabled filtering for ImageContent and PDFContent
             if isinstance(item, ImageContent) and self.vision_enabled:
                 content.extend(item_dicts)
-            elif not isinstance(item, ImageContent):
-                # Add non-image content (TextContent, etc.)
+            elif isinstance(item, PDFContent) and self.pdf_enabled:
+                content.extend(item_dicts)
+            elif not isinstance(item, (ImageContent, PDFContent)):
+                # Add non-image/non-pdf content (TextContent, etc.)
                 content.extend(item_dicts)
 
         message_dict: dict[str, Any] = {"content": content, "role": self.role}
@@ -642,8 +691,10 @@ class Message(BaseModel):
         )
 
 
-def content_to_str(contents: Sequence[TextContent | ImageContent]) -> list[str]:
-    """Convert a list of TextContent and ImageContent to a list of strings.
+def content_to_str(
+    contents: Sequence[TextContent | ImageContent | PDFContent],
+) -> list[str]:
+    """Convert a list of TextContent, ImageContent, and PDFContent to a list of strings.
 
     This is primarily used for display purposes.
     """
@@ -653,4 +704,6 @@ def content_to_str(contents: Sequence[TextContent | ImageContent]) -> list[str]:
             text_parts.append(content_item.text)
         elif isinstance(content_item, ImageContent):
             text_parts.append(f"[Image: {len(content_item.image_urls)} URLs]")
+        elif isinstance(content_item, PDFContent):
+            text_parts.append(f"[PDF: {len(content_item.pdf_urls)} documents]")
     return text_parts

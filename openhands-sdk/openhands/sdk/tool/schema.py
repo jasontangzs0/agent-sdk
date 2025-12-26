@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from pydantic import ConfigDict, Field, create_model
 from rich.text import Text
 
-from openhands.sdk.llm import ImageContent, TextContent
+from openhands.sdk.llm import ImageContent, PDFContent, TextContent
 from openhands.sdk.llm.message import content_to_str
 from openhands.sdk.utils.models import (
     DiscriminatedUnionMixin,
@@ -195,11 +195,11 @@ class Observation(Schema, ABC):
 
     ERROR_MESSAGE_HEADER: ClassVar[str] = "[An error occurred during execution.]\n"
 
-    content: list[TextContent | ImageContent] = Field(
+    content: list[TextContent | ImageContent | PDFContent] = Field(
         default_factory=list,
         description=(
             "Content returned from the tool as a list of "
-            "TextContent/ImageContent objects. "
+            "TextContent/ImageContent/PDFContent objects. "
             "When there is an error, it should be written in this field."
         ),
     )
@@ -238,12 +238,12 @@ class Observation(Schema, ABC):
         )
 
     @property
-    def to_llm_content(self) -> Sequence[TextContent | ImageContent]:
+    def to_llm_content(self) -> Sequence[TextContent | ImageContent | PDFContent]:
         """
         Default content formatting for converting observation to LLM readable content.
-        Subclasses can override to provide richer content (e.g., images, diffs).
+        Subclasses can override to provide richer content (e.g., images, PDFs, diffs).
         """
-        llm_content: list[TextContent | ImageContent] = []
+        llm_content: list[TextContent | ImageContent | PDFContent] = []
 
         # If is_error is true, prepend error message
         if self.is_error:

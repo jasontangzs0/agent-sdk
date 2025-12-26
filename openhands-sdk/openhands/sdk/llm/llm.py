@@ -55,6 +55,7 @@ from litellm.types.llms.openai import ResponsesAPIResponse
 from litellm.types.utils import ModelResponse
 from litellm.utils import (
     create_pretrained_tokenizer,
+    supports_pdf_input,
     supports_vision,
     token_counter,
 )
@@ -913,6 +914,40 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             or False  # fallback to False if model_info is None
         )
 
+    def pdf_is_active(self) -> bool:
+        """Check if PDF input is supported and not disabled for this model.
+
+        Returns:
+            bool: True if PDF input is active for this model.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return not self.disable_vision and self._supports_pdf()
+
+    def _supports_pdf(self) -> bool:
+        """Check if model supports PDF input via litellm.
+
+        PDF input is supported by:
+        - Vertex AI models (Gemini + Anthropic)
+        - Bedrock Models
+        - Anthropic API Models
+        - OpenAI API Models
+        - Mistral (using file ID of already uploaded file)
+
+        Returns:
+            bool: True if model supports PDF input.
+        """
+        model_for_caps = self._model_name_for_capabilities()
+        return (
+            supports_pdf_input(model_for_caps)
+            or supports_pdf_input(model_for_caps.split("/")[-1])
+            or (
+                self._model_info is not None
+                and self._model_info.get("supports_pdf_input", False)
+            )
+            or False  # fallback to False if model_info is None
+        )
+
     def is_caching_prompt_active(self) -> bool:
         """Check if prompt caching is supported and enabled for current model.
 
@@ -969,6 +1004,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         for message in messages:
             message.cache_enabled = self.is_caching_prompt_active()
             message.vision_enabled = self.vision_is_active()
+            message.pdf_enabled = self.pdf_is_active()
             message.function_calling_enabled = self.native_tool_calling
             model_features = get_features(self._model_name_for_capabilities())
             message.force_string_serializer = (
