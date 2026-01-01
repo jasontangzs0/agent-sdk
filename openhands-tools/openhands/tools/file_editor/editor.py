@@ -1,5 +1,3 @@
-import base64
-import mimetypes
 import os
 import re
 import shutil
@@ -9,7 +7,6 @@ from typing import get_args
 
 from binaryornot.check import is_binary
 
-from openhands.sdk import ImageContent, TextContent
 from openhands.sdk.logger import get_logger
 from openhands.sdk.utils.truncate import maybe_truncate
 from openhands.tools.file_editor.definition import (
@@ -333,33 +330,19 @@ class FileEditor:
                 prev_exist=True,
             )
 
-        # Check if the file is an image
+        # Check if the file is an image or pdf
         file_extension = path.suffix.lower()
-        if file_extension in IMAGE_EXTENSIONS:
-            # Read image file as base64
-            try:
-                with open(path, "rb") as f:
-                    image_bytes = f.read()
-                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-
-                mime_type, _ = mimetypes.guess_type(str(path))
-                if not mime_type or not mime_type.startswith("image/"):
-                    mime_type = "image/png"
-                output_msg = (
-                    f"Image file {path} read successfully. Displaying image content."
-                )
-                image_url = f"data:{mime_type};base64,{image_base64}"
-                return FileEditorObservation(
-                    command="view",
-                    content=[
-                        TextContent(text=output_msg),
-                        ImageContent(image_urls=[image_url]),
-                    ],
-                    path=str(path),
-                    prev_exist=True,
-                )
-            except Exception as e:
-                raise ToolError(f"Failed to read image file {path}: {e}") from None
+        if file_extension in IMAGE_EXTENSIONS or file_extension == ".pdf":
+            return FileEditorObservation.from_text(
+                text=(
+                    "The tool cannot display this file type. Please ask the user to "
+                    "explicitly @-mention this specific file in their next message to "
+                    "you. This will allow the system to upload it for you to see."
+                ),
+                command="view",
+                path=str(path),
+                prev_exist=True,
+            )
 
         # Validate file and count lines
         self.validate_file(path)
