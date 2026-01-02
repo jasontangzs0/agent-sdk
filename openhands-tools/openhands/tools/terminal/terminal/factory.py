@@ -84,7 +84,7 @@ def create_terminal_session(
             )
 
             logger.info("Using forced TmuxTerminal")
-            terminal = TmuxTerminal(work_dir, username)
+            terminal = TmuxTerminal(work_dir, username, shell_path)
             return TerminalSession(terminal, no_change_timeout_seconds)
         elif terminal_type == "subprocess":
             from openhands.tools.terminal.terminal.subprocess_terminal import (
@@ -110,7 +110,7 @@ def create_terminal_session(
             )
 
             logger.info("Auto-detected: Using TmuxTerminal (tmux available)")
-            terminal = TmuxTerminal(work_dir, username)
+            terminal = TmuxTerminal(work_dir, username, shell_path)
             return TerminalSession(terminal, no_change_timeout_seconds)
         else:
             from openhands.tools.terminal.terminal.subprocess_terminal import (

@@ -32,8 +32,10 @@ class TmuxTerminal(TerminalInterface):
         self,
         work_dir: str,
         username: str | None = None,
+        shell_path: str | None = None,
     ):
         super().__init__(work_dir, username)
+        self.shell_path = shell_path or "/bin/bash"
         self.PS1 = CmdOutputMetadata.to_ps1_prompt()
 
     def initialize(self) -> None:
@@ -42,7 +44,11 @@ class TmuxTerminal(TerminalInterface):
             return
 
         self.server = libtmux.Server()
-        _shell_command = "/bin/bash"
+        _shell_command = self.shell_path
+
+        if self.shell_path not in ["/bin/bash", "bash"]:
+            _shell_command = f"{self.shell_path} {self.work_dir}"
+
         if self.username in ["root", "openhands"]:
             # This starts a non-login (new) shell for the given user
             _shell_command = f"su {self.username} -"
