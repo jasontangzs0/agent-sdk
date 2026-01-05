@@ -62,6 +62,8 @@ class FileEditor:
         self,
         workspace_root: str | None = None,
         max_file_size_mb: int | None = None,
+        allowed_paths: list[str] | None = None,
+        denied_paths: list[str] | None = None,
     ):
         """Initialize the editor.
 
@@ -71,6 +73,10 @@ class FileEditor:
             workspace_root: Root directory that serves as the current working
                 directory for relative path suggestions. Must be an absolute path.
                 If None, no path suggestions will be provided for relative paths.
+            allowed_paths: List of path prefixes that are allowed for access.
+                If None, all paths are allowed (subject to denied_paths).
+            denied_paths: List of path prefixes that are denied for access.
+                Denied paths take precedence over allowed paths.
         """
         self._history_manager = FileHistoryManager(max_history_per_file=10)
         self._max_file_size = (
@@ -79,6 +85,10 @@ class FileEditor:
 
         # Initialize encoding manager
         self._encoding_manager = EncodingManager()
+
+        # Security: path restrictions
+        self._allowed_paths = allowed_paths  # e.g., ["/workspace"]
+        self._denied_paths = denied_paths or []  # e.g., ["/app", "/agent-sdk"]
 
         # Set cwd (current working directory) if workspace_root is provided
         if workspace_root is not None:
@@ -539,9 +549,36 @@ class FileEditor:
         Check that the path/command combination is valid.
 
         Validates:
-        1. Path is absolute
-        2. Path and command are compatible
+        1. Path is allowed by security policy (allowed_paths / denied_paths)
+        2. Path is absolute
+        3. Path and command are compatible
         """
+        # SECURITY: Check denied paths first (takes precedence)
+        path_str = str(path.resolve())
+        for denied in self._denied_paths:
+            if path_str.startswith(denied) or path_str == denied:
+                raise EditorToolParameterInvalidError(
+                    "path",
+                    str(path),
+                    f"Access denied: The path {path} is in a restricted directory. "
+                    f"You can only access files in your workspace.",
+                )
+
+        # SECURITY: Check allowed paths if configured
+        if self._allowed_paths is not None:
+            is_allowed = any(
+                path_str.startswith(allowed) or path_str == allowed
+                for allowed in self._allowed_paths
+            )
+            if not is_allowed:
+                raise EditorToolParameterInvalidError(
+                    "path",
+                    str(path),
+                    f"Access denied: The path {path} is outside of allowed "
+                    "directories. "
+                    f"You can only access files in: {', '.join(self._allowed_paths)}",
+                )
+
         # Check if its an absolute path
         if not path.is_absolute():
             suggestion_message = (
