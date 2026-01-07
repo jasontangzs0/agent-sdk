@@ -42,6 +42,7 @@ from openhands.sdk.mcp import (
     MCPToolObservation,
     create_mcp_tools,
 )
+from openhands.sdk.plugin import Plugin
 from openhands.sdk.tool import (
     Action,
     Observation,
@@ -100,6 +101,7 @@ __all__ = [
     "LLMSummarizingCondenser",
     "FileStore",
     "LocalFileStore",
+    "Plugin",
     "register_tool",
     "resolve_tool",
     "list_registered_tools",
