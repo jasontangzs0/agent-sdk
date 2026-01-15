@@ -21,7 +21,9 @@ from openhands.sdk.tool import (
 from openhands.tools.file_editor.utils.diff import visualize_diff
 
 
-CommandLiteral = Literal["view", "create", "str_replace", "insert", "undo_edit"]
+CommandLiteral = Literal[
+    "view", "create", "str_replace", "insert", "undo_edit", "move_lines", "delete_lines"
+]
 
 
 class FileEditorAction(Action):
@@ -29,7 +31,7 @@ class FileEditorAction(Action):
 
     command: CommandLiteral = Field(
         description="The commands to run. Allowed options are: `view`, `create`, "
-        "`str_replace`, `insert`, `undo_edit`."
+        "`str_replace`, `insert`, `undo_edit`, `move_lines`, `delete_lines`."
     )
     path: str = Field(description="Absolute path to file or directory.")
     file_text: str | None = Field(
@@ -51,8 +53,12 @@ class FileEditorAction(Action):
     insert_line: int | None = Field(
         default=None,
         ge=0,
-        description="Required parameter of `insert` command. The `new_str` will "
-        "be inserted AFTER the line `insert_line` of `path`.",
+        description=(
+            "Required parameter of `insert` and `move_lines` commands. "
+            "For `insert`, the `new_str` will be inserted AFTER the line "
+            "`insert_line` of `path`. For `move_lines`, the content will be "
+            "moved to AFTER the line `insert_line` of `path`."
+        ),
     )
     view_range: list[int] | None = Field(
         default=None,
@@ -61,6 +67,24 @@ class FileEditorAction(Action):
         "will be shown in the indicated line number range, e.g. [11, 12] will "
         "show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, "
         "-1]` shows all lines from `start_line` to the end of the file.",
+    )
+    move_range: list[int] | None = Field(
+        default=None,
+        description=(
+            "Required parameter of `move_lines` command. A list of two integers "
+            "[start, end] specifying the line range to move (1-indexed, "
+            "inclusive). For example, [11, 20] moves lines 11 to 20 to the "
+            "position specified by `insert_line`."
+        ),
+    )
+    delete_range: list[int] | None = Field(
+        default=None,
+        description=(
+            "Required parameter of `delete_lines` command. A list of two "
+            "integers [start, end] specifying the line range to delete "
+            "(1-indexed, inclusive). For example, [50, 100] deletes lines "
+            "50 to 100."
+        ),
     )
 
 
@@ -129,15 +153,28 @@ class FileEditorObservation(Observation):
         if not self.path:
             return False
 
-        if self.command not in ("create", "str_replace", "insert", "undo_edit"):
+        if self.command not in (
+            "create",
+            "str_replace",
+            "insert",
+            "undo_edit",
+            "move_lines",
+            "delete_lines",
+        ):
             return False
 
         # File creation case
         if self.command == "create" and self.new_content and not self.prev_exist:
             return True
 
-        # File modification cases (str_replace, insert, undo_edit)
-        if self.command in ("str_replace", "insert", "undo_edit"):
+        # File modification cases: str_replace, insert, undo_edit, etc.
+        if self.command in (
+            "str_replace",
+            "insert",
+            "undo_edit",
+            "move_lines",
+            "delete_lines",
+        ):
             # Need both old and new content to show meaningful diff
             if self.old_content is not None and self.new_content is not None:
                 # Only show diff if content actually changed
@@ -161,6 +198,8 @@ TOOL_DESCRIPTION = """Custom editing tool for viewing, creating and editing file
 * The `create` command cannot be used if the specified `path` already exists as a file
 * If a `command` generates a long output, it will be truncated and marked with `<response clipped>`
 * The `undo_edit` command will revert the last edit made to the file at `path`
+* The `move_lines` command moves a range of lines to a new location in the same file
+* The `delete_lines` command deletes a range of lines from the file
 * This tool can be used for creating and editing files in plain-text format.
 
 

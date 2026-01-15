@@ -269,3 +269,342 @@ def test_file_editor_tool_image_viewing_line_with_vision_disabled():
         # Check that the image viewing line is NOT included in description
         assert "is an image file" not in tool.description
         assert "displays the image content" not in tool.description
+
+
+def test_file_editor_tool_move_lines_basic():
+    """Test that FileEditorTool can move lines within a file."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        # Create a test file with numbered lines
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n")
+
+        # Move lines 2-3 to after line 4
+        action = FileEditorAction(
+            command="move_lines",
+            path=test_file,
+            move_range=[2, 3],
+            insert_line=4,
+        )
+
+        result = tool(action)
+
+        assert result is not None
+        assert isinstance(result, FileEditorObservation)
+        assert not result.is_error
+        assert "Moved lines 2-3" in result.text
+
+        # Check file contents - should be: Line 1, Line 4, Line 2, Line 3, Line 5
+        with open(test_file) as f:
+            content = f.read()
+        lines = content.strip().split("\n")
+        assert lines == ["Line 1", "Line 4", "Line 2", "Line 3", "Line 5"]
+
+
+def test_file_editor_tool_move_lines_to_beginning():
+    """Test moving lines to the beginning of the file."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\nLine 4\n")
+
+        # Move lines 3-4 to the beginning (after line 0)
+        action = FileEditorAction(
+            command="move_lines",
+            path=test_file,
+            move_range=[3, 4],
+            insert_line=0,
+        )
+
+        result = tool(action)
+
+        assert not result.is_error
+
+        with open(test_file) as f:
+            content = f.read()
+        lines = content.strip().split("\n")
+        assert lines == ["Line 3", "Line 4", "Line 1", "Line 2"]
+
+
+def test_file_editor_tool_move_lines_invalid_range():
+    """Test that move_lines fails with invalid range."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\n")
+
+        # Try to move lines beyond file length
+        action = FileEditorAction(
+            command="move_lines",
+            path=test_file,
+            move_range=[1, 10],  # Line 10 doesn't exist
+            insert_line=0,
+        )
+
+        result = tool(action)
+
+        assert result.is_error
+        assert "move_range" in result.text.lower() or "range" in result.text.lower()
+
+
+def test_file_editor_tool_move_lines_supports_undo():
+    """Test that move_lines supports undo."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+        original_content = "Line 1\nLine 2\nLine 3\n"
+
+        with open(test_file, "w") as f:
+            f.write(original_content)
+
+        # Move some lines
+        action = FileEditorAction(
+            command="move_lines",
+            path=test_file,
+            move_range=[1, 1],
+            insert_line=2,
+        )
+        tool(action)
+
+        # Now undo
+        undo_action = FileEditorAction(
+            command="undo_edit",
+            path=test_file,
+        )
+        undo_result = tool(undo_action)
+
+        assert not undo_result.is_error
+
+        # Check that content is restored
+        with open(test_file) as f:
+            content = f.read()
+        assert content == original_content
+
+
+def test_file_editor_tool_delete_lines_basic():
+    """Test that FileEditorTool can delete lines from a file."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n")
+
+        # Delete lines 2-4
+        action = FileEditorAction(
+            command="delete_lines",
+            path=test_file,
+            delete_range=[2, 4],
+        )
+
+        result = tool(action)
+
+        assert result is not None
+        assert isinstance(result, FileEditorObservation)
+        assert not result.is_error
+        assert "Deleted lines 2-4" in result.text
+        assert "(3 lines)" in result.text
+
+        # Check file contents - should only have Line 1 and Line 5
+        with open(test_file) as f:
+            content = f.read()
+        lines = content.strip().split("\n")
+        assert lines == ["Line 1", "Line 5"]
+
+
+def test_file_editor_tool_delete_lines_single_line():
+    """Test deleting a single line."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\n")
+
+        # Delete only line 2
+        action = FileEditorAction(
+            command="delete_lines",
+            path=test_file,
+            delete_range=[2, 2],
+        )
+
+        result = tool(action)
+
+        assert not result.is_error
+        assert "(1 lines)" in result.text
+
+        with open(test_file) as f:
+            content = f.read()
+        lines = content.strip().split("\n")
+        assert lines == ["Line 1", "Line 3"]
+
+
+def test_file_editor_tool_delete_lines_all_lines():
+    """Test deleting all lines from a file."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\n")
+
+        # Delete all lines
+        action = FileEditorAction(
+            command="delete_lines",
+            path=test_file,
+            delete_range=[1, 3],
+        )
+
+        result = tool(action)
+
+        assert not result.is_error
+        assert "file is now empty" in result.text.lower()
+
+        with open(test_file) as f:
+            content = f.read()
+        assert content == ""
+
+
+def test_file_editor_tool_delete_lines_invalid_range():
+    """Test that delete_lines fails with invalid range."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\n")
+
+        # Try to delete lines beyond file length
+        action = FileEditorAction(
+            command="delete_lines",
+            path=test_file,
+            delete_range=[1, 10],  # Line 10 doesn't exist
+        )
+
+        result = tool(action)
+
+        assert result.is_error
+        assert "delete_range" in result.text.lower() or "range" in result.text.lower()
+
+
+def test_file_editor_tool_delete_lines_start_greater_than_end():
+    """Test that delete_lines fails when start > end."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\n")
+
+        # Try with start > end
+        action = FileEditorAction(
+            command="delete_lines",
+            path=test_file,
+            delete_range=[3, 1],  # Invalid: start > end
+        )
+
+        result = tool(action)
+
+        assert result.is_error
+
+
+def test_file_editor_tool_delete_lines_supports_undo():
+    """Test that delete_lines supports undo."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+        original_content = "Line 1\nLine 2\nLine 3\n"
+
+        with open(test_file, "w") as f:
+            f.write(original_content)
+
+        # Delete some lines
+        action = FileEditorAction(
+            command="delete_lines",
+            path=test_file,
+            delete_range=[2, 2],
+        )
+        tool(action)
+
+        # Verify deletion happened
+        with open(test_file) as f:
+            content = f.read()
+        assert "Line 2" not in content
+
+        # Now undo
+        undo_action = FileEditorAction(
+            command="undo_edit",
+            path=test_file,
+        )
+        undo_result = tool(undo_action)
+
+        assert not undo_result.is_error
+
+        # Check that content is restored
+        with open(test_file) as f:
+            content = f.read()
+        assert content == original_content
+
+
+def test_file_editor_tool_delete_lines_preserves_diff():
+    """Test that delete_lines properly stores old and new content for diff."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        conv_state = _create_test_conv_state(temp_dir)
+        tools = FileEditorTool.create(conv_state)
+        tool = tools[0]
+
+        test_file = os.path.join(temp_dir, "test.txt")
+
+        with open(test_file, "w") as f:
+            f.write("Line 1\nLine 2\nLine 3\n")
+
+        action = FileEditorAction(
+            command="delete_lines",
+            path=test_file,
+            delete_range=[2, 2],
+        )
+
+        result = tool(action)
+
+        # Check that old_content and new_content are populated
+        assert isinstance(result, FileEditorObservation)
+        assert result.old_content is not None
+        assert result.new_content is not None
+        assert "Line 2" in result.old_content
+        assert "Line 2" not in result.new_content

@@ -68,6 +68,8 @@ class FileEditorExecutor(ToolExecutor):
                 old_str=action.old_str,
                 new_str=action.new_str,
                 insert_line=action.insert_line,
+                move_range=action.move_range,
+                delete_range=action.delete_range,
             )
         except ToolError as e:
             result = FileEditorObservation.from_text(
@@ -85,6 +87,8 @@ def file_editor(
     old_str: str | None = None,
     new_str: str | None = None,
     insert_line: int | None = None,
+    move_range: list[int] | None = None,
+    delete_range: list[int] | None = None,
 ) -> FileEditorObservation:
     """A global FileEditor instance to be used by the tool."""
 
@@ -102,6 +106,8 @@ def file_editor(
             old_str=old_str,
             new_str=new_str,
             insert_line=insert_line,
+            move_range=move_range,
+            delete_range=delete_range,
         )
     except ToolError as e:
         result = FileEditorObservation.from_text(

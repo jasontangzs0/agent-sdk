@@ -822,6 +822,10 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     api_key_value = self.api_key.get_secret_value()
 
                 # Some providers need renames handled in _normalize_call_kwargs.
+                # For streaming, request usage info in the final chunk
+                if enable_streaming:
+                    kwargs.setdefault("stream_options", {})["include_usage"] = True
+
                 ret = litellm_completion(
                     model=self.model,
                     api_key=api_key_value,
@@ -836,10 +840,33 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                 if enable_streaming and on_token is not None:
                     assert isinstance(ret, CustomStreamWrapper)
                     chunks = []
+                    stream_usage = None
                     for chunk in ret:
                         on_token(chunk)
                         chunks.append(chunk)
+                        # Capture usage from chunks (typically in final chunk)
+                        chunk_usage = getattr(chunk, "usage", None)
+                        if chunk_usage is not None:
+                            stream_usage = chunk_usage
+
                     ret = litellm.stream_chunk_builder(chunks, messages=messages)
+
+                    # Preserve prompt_tokens_details from stream if lost by
+                    # chunk_builder. This ensures cache tokens (e.g., Gemini's
+                    # cachedContentTokenCount) are properly recorded in streaming
+                    assert isinstance(ret, ModelResponse)
+                    ret_usage = getattr(ret, "usage", None)
+                    if (
+                        stream_usage is not None
+                        and ret_usage is not None
+                        and getattr(stream_usage, "prompt_tokens_details", None)
+                        and not getattr(
+                            ret_usage.prompt_tokens_details, "cached_tokens", None
+                        )
+                    ):
+                        ret_usage.prompt_tokens_details = (
+                            stream_usage.prompt_tokens_details
+                        )
 
                 assert isinstance(ret, ModelResponse), (
                     f"Expected ModelResponse, got {type(ret)}"

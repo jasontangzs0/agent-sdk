@@ -111,6 +111,8 @@ class FileEditor:
         old_str: str | None = None,
         new_str: str | None = None,
         insert_line: int | None = None,
+        move_range: list[int] | None = None,
+        delete_range: list[int] | None = None,
     ) -> FileEditorObservation:
         _path = Path(path)
         self.validate_path(command, _path)
@@ -147,6 +149,16 @@ class FileEditor:
             if new_str is None:
                 raise EditorToolParameterMissingError(command, "new_str")
             return self.insert(_path, insert_line, new_str)
+        elif command == "move_lines":
+            if move_range is None:
+                raise EditorToolParameterMissingError(command, "move_range")
+            if insert_line is None:
+                raise EditorToolParameterMissingError(command, "insert_line")
+            return self.move_lines(_path, move_range, insert_line)
+        elif command == "delete_lines":
+            if delete_range is None:
+                raise EditorToolParameterMissingError(command, "delete_range")
+            return self.delete_lines(_path, delete_range)
         elif command == "undo_edit":
             return self.undo_edit(_path)
 
@@ -542,6 +554,204 @@ class FileEditor:
             path=str(path),
             old_content=file_text,
             new_content=new_file_text,
+        )
+
+    def move_lines(
+        self,
+        path: Path,
+        move_range: list[int],
+        insert_line: int,
+    ) -> FileEditorObservation:
+        """
+        Implement the move_lines command, which moves a range of lines to a new
+        location in the file.
+
+        Args:
+            path: Path to the file
+            move_range: Line range to move [start, end] (1-indexed, inclusive)
+            insert_line: Line number after which to insert the moved content (0-indexed)
+        """
+        self.validate_file(path)
+        num_lines = self._count_lines(path)
+
+        if len(move_range) != 2 or not all(isinstance(i, int) for i in move_range):
+            raise EditorToolParameterInvalidError(
+                "move_range",
+                str(move_range),
+                "It should be a list of two integers.",
+            )
+
+        start, end = move_range
+        if start < 1 or start > num_lines:
+            raise EditorToolParameterInvalidError(
+                "move_range",
+                str(move_range),
+                f"Its first element `{start}` should be within the range of "
+                f"lines: [1, {num_lines}].",
+            )
+        if end < start or end > num_lines:
+            raise EditorToolParameterInvalidError(
+                "move_range",
+                str(move_range),
+                f"Its second element `{end}` should be greater than or equal "
+                f"to the first element `{start}` and within the range of "
+                f"lines: [1, {num_lines}].",
+            )
+
+        if insert_line < 0 or insert_line > num_lines:
+            raise EditorToolParameterInvalidError(
+                "insert_line",
+                str(insert_line),
+                f"It should be within the range of allowed values: [0, {num_lines}]",
+            )
+
+        # Read original content
+        old_file_content = self.read_file(path)
+        lines = old_file_content.splitlines(keepends=True)
+
+        # Extract content to move
+        move_content = lines[start - 1 : end]
+
+        # Remove content from original position
+        remaining_lines = lines[: start - 1] + lines[end:]
+
+        # Adjust insert_line if it was after the moved range
+        actual_insert_idx = insert_line
+        if insert_line >= end:
+            actual_insert_idx = insert_line - (end - start + 1)
+        elif insert_line >= start:
+            # If inserting within the moved range, it effectively stays put
+            actual_insert_idx = start - 1
+
+        # Re-insert content
+        new_lines = (
+            remaining_lines[:actual_insert_idx]
+            + move_content
+            + remaining_lines[actual_insert_idx:]
+        )
+        new_file_content = "".join(new_lines)
+
+        # Write and save history
+        self.write_file(path, new_file_content)
+        self._history_manager.add_history(path, old_file_content)
+
+        # Snippet for output - show the destination area
+        new_num_lines = len(new_lines)
+        dest_start = actual_insert_idx + 1
+        dest_end = dest_start + (end - start)
+
+        snippet_start = max(1, dest_start - SNIPPET_CONTEXT_WINDOW)
+        snippet_end = min(new_num_lines, dest_end + SNIPPET_CONTEXT_WINDOW)
+
+        snippet = self.read_file(path, start_line=snippet_start, end_line=snippet_end)
+
+        success_message = (
+            f"Moved lines {start}-{end} to after line {insert_line} in {path}. "
+        )
+        success_message += self._make_output(
+            snippet, "a snippet of the file at the new location", snippet_start
+        )
+        success_message += (
+            "Review the changes and make sure they are as expected. Edit the "
+            "file again if necessary."
+        )
+
+        return FileEditorObservation.from_text(
+            text=success_message,
+            command="move_lines",
+            prev_exist=True,
+            path=str(path),
+            old_content=old_file_content,
+            new_content=new_file_content,
+        )
+
+    def delete_lines(
+        self,
+        path: Path,
+        delete_range: list[int],
+    ) -> FileEditorObservation:
+        """Implement the delete_lines command.
+
+        Deletes a range of lines from the file.
+
+        Args:
+            path: Path to the file
+            delete_range: Line range to delete [start, end] (1-indexed, inclusive)
+        """
+        self.validate_file(path)
+        num_lines = self._count_lines(path)
+
+        if len(delete_range) != 2 or not all(isinstance(i, int) for i in delete_range):
+            raise EditorToolParameterInvalidError(
+                "delete_range",
+                str(delete_range),
+                "It should be a list of two integers.",
+            )
+
+        start, end = delete_range
+        if start < 1 or start > num_lines:
+            raise EditorToolParameterInvalidError(
+                "delete_range",
+                str(delete_range),
+                f"Its first element `{start}` should be within the range of "
+                f"lines: [1, {num_lines}].",
+            )
+        if end < start or end > num_lines:
+            raise EditorToolParameterInvalidError(
+                "delete_range",
+                str(delete_range),
+                f"Its second element `{end}` should be greater than or equal "
+                f"to the first element `{start}` and within the range of "
+                f"lines: [1, {num_lines}].",
+            )
+
+        # Read original content
+        old_file_content = self.read_file(path)
+        lines = old_file_content.splitlines(keepends=True)
+
+        # Remove the specified lines
+        new_lines = lines[: start - 1] + lines[end:]
+        new_file_content = "".join(new_lines)
+
+        # Write and save history
+        self.write_file(path, new_file_content)
+        self._history_manager.add_history(path, old_file_content)
+
+        # Snippet for output - show the area around where lines were deleted
+        new_num_lines = len(new_lines)
+        snippet_start = max(1, start - SNIPPET_CONTEXT_WINDOW)
+        snippet_end = min(new_num_lines, start + SNIPPET_CONTEXT_WINDOW - 1)
+
+        lines_deleted = end - start + 1
+        if new_num_lines == 0:
+            success_message = (
+                f"Deleted lines {start}-{end} ({lines_deleted} lines) "
+                f"from {path}. The file is now empty."
+            )
+        else:
+            snippet = self.read_file(
+                path, start_line=snippet_start, end_line=snippet_end
+            )
+            success_message = (
+                f"Deleted lines {start}-{end} ({lines_deleted} lines) from {path}. "
+            )
+            success_message += self._make_output(
+                snippet,
+                "a snippet of the file around the deletion point",
+                snippet_start,
+            )
+            success_message += (
+                "Review the changes and make sure they are as expected. Edit the "
+                "file again if necessary."
+            )
+
+        return FileEditorObservation.from_text(
+            text=success_message,
+            command="delete_lines",
+            prev_exist=True,
+            path=str(path),
+            old_content=old_file_content,
+            new_content=new_file_content,
         )
 
     def validate_path(self, command: CommandLiteral, path: Path) -> None:

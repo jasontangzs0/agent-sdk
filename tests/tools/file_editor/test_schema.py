@@ -21,6 +21,8 @@ def test_to_mcp_tool_detailed_type_validation_editor(mock_conversation_state):
     assert "new_str" in str_editor_props
     assert "insert_line" in str_editor_props
     assert "view_range" in str_editor_props
+    assert "move_range" in str_editor_props
+    assert "delete_range" in str_editor_props
     # security_risk should NOT be in the schema after #341
     assert "security_risk" not in str_editor_props
 
@@ -32,9 +34,29 @@ def test_to_mcp_tool_detailed_type_validation_editor(mock_conversation_state):
     assert "description" in view_range_schema
     assert "Optional parameter of `view` command" in view_range_schema["description"]
 
+    # Validate move_range schema
+    move_range_schema = str_editor_props["move_range"]
+    assert move_range_schema["type"] == "array"
+    assert move_range_schema["items"]["type"] == "integer"
+    assert "move_lines" in move_range_schema["description"]
+
+    # Validate delete_range schema
+    delete_range_schema = str_editor_props["delete_range"]
+    assert delete_range_schema["type"] == "array"
+    assert delete_range_schema["items"]["type"] == "integer"
+    assert "delete_lines" in delete_range_schema["description"]
+
     command_schema = str_editor_props["command"]
     assert "enum" in command_schema
-    expected_commands = ["view", "create", "str_replace", "insert", "undo_edit"]
+    expected_commands = [
+        "view",
+        "create",
+        "str_replace",
+        "insert",
+        "undo_edit",
+        "move_lines",
+        "delete_lines",
+    ]
     assert set(command_schema["enum"]) == set(expected_commands)
 
     path_schema = str_editor_props["path"]
