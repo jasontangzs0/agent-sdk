@@ -1100,24 +1100,63 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     input_items.extend(val)
         return instructions, input_items
 
+    def _filter_unsupported_content_for_token_count(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Filter out content types that litellm's token_counter doesn't support.
+
+        Content types like 'file' are not recognized by litellm's token counter.
+        This method filters them out so token counting can proceed.
+        """
+        # Supported content types that litellm's token_counter can handle
+        supported_types = {"text", "image_url", "input_audio"}
+
+        filtered: list[dict[str, Any]] = []
+        for msg in messages:
+            content = msg.get("content")
+
+            if not isinstance(content, list):
+                filtered.append(msg)
+                continue
+
+            filtered_content: list[str | dict[str, Any]] = []
+            for item in content:
+                if isinstance(item, str):
+                    filtered_content.append(item)
+                elif isinstance(item, dict):
+                    item_type = item.get("type")
+                    if item_type in supported_types:
+                        filtered_content.append(item)
+                    # Skip unsupported types (file, etc.) silently
+
+            msg_copy = copy.copy(msg)
+            msg_copy["content"] = filtered_content if filtered_content else ""
+            filtered.append(msg_copy)
+
+        return filtered
+
     def get_token_count(self, messages: list[Message]) -> int:
         logger.debug(
             "Message objects now include serialized tool calls in token counting"
         )
         formatted_messages = self.format_messages_for_llm(messages)
+        # Filter out unsupported content types before counting
+        filtered_messages = self._filter_unsupported_content_for_token_count(
+            formatted_messages
+        )
         try:
             return int(
                 token_counter(
                     model=self.model,
-                    messages=formatted_messages,
+                    messages=filtered_messages,
                     custom_tokenizer=self._tokenizer,
                 )
             )
         except Exception as e:
-            logger.error(
-                f"Error getting token count for model {self.model}\n{e}"
+            logger.warning(
+                f"Error getting token count for model {self.model}: {e}"
                 + (
-                    f"\ncustom_tokenizer: {self.custom_tokenizer}"
+                    f" (custom_tokenizer: {self.custom_tokenizer})"
                     if self.custom_tokenizer
                     else ""
                 ),
