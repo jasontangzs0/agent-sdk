@@ -165,7 +165,10 @@ def resolve_tool(
     if resolver is None:
         raise KeyError(f"ToolDefinition '{tool_spec.name}' is not registered")
 
-    return resolver(tool_spec.params, conv_state)
+    # Merge runtime_params into params for tool creation.
+    # runtime_params are excluded from serialization but available at runtime.
+    merged_params = {**tool_spec.params, **tool_spec.runtime_params}
+    return resolver(merged_params, conv_state)
 
 
 def list_registered_tools() -> list[str]:

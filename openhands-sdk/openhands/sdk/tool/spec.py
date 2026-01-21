@@ -23,6 +23,15 @@ class Tool(BaseModel):
         " e.g., {'working_dir': '/app'}",
         examples=[{"working_dir": "/workspace"}],
     )
+    runtime_params: dict[str, Any] = Field(
+        default_factory=dict,
+        exclude=True,
+        description=(
+            "Runtime-only parameters (callbacks, cancellation tokens, etc.) "
+            "that are passed to .create() but excluded from serialization. "
+            "Use this for non-serializable objects like functions or runtime state."
+        ),
+    )
 
     @field_validator("name")
     @classmethod
