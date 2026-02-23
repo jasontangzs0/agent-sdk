@@ -8,6 +8,7 @@ from openhands.sdk.logger import get_logger
 from openhands.sdk.utils import maybe_truncate
 from openhands.tools.terminal.constants import (
     CMD_OUTPUT_PS1_END,
+    MAX_ABSOLUTE_TIMEOUT_SECONDS,
     MAX_CMD_OUTPUT_SIZE,
     NO_CHANGE_TIMEOUT_SECONDS,
     POLL_INTERVAL,
@@ -516,6 +517,22 @@ class TerminalSession(TerminalSessionBase):
                     )
                     logger.debug(f"RETURNING OBSERVATION (hard-timeout): {obs}")
                     return obs
+
+            # 4) Absolute safety-net timeout: guarantees the loop always exits,
+            # even if no-change timeout keeps resetting due to subtle PTY changes.
+            # Only applies when no explicit timeout is set (check #3 handles that).
+            if action.timeout is None and elapsed_time >= MAX_ABSOLUTE_TIMEOUT_SECONDS:
+                logger.warning(
+                    f"Absolute safety-net timeout ({MAX_ABSOLUTE_TIMEOUT_SECONDS}s) "
+                    f"reached for command: {command!r}"
+                )
+                obs = self._handle_hard_timeout_command(
+                    command,
+                    terminal_content=cur_terminal_output,
+                    ps1_matches=ps1_matches,
+                    timeout=MAX_ABSOLUTE_TIMEOUT_SECONDS,
+                )
+                return obs
 
             # Sleep before next check
             time.sleep(POLL_INTERVAL)

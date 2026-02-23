@@ -1093,3 +1093,59 @@ def test_bash_remove_prefix(terminal_type):
             assert "git remote -v" not in obs.text
         finally:
             session.close()
+
+
+@pytest.mark.timeout(30)
+def test_absolute_safety_net_timeout(monkeypatch):
+    """Test that the absolute safety-net timeout fires when the no-change
+    timeout keeps resetting due to continuous output.
+
+    Uses a mock terminal to avoid flaky PS1 detection issues with real PTY.
+    """
+    from unittest.mock import MagicMock
+
+    import openhands.tools.terminal.terminal.terminal_session as ts_module
+
+    # Monkeypatch to 3 seconds so the test completes quickly
+    monkeypatch.setattr(ts_module, "MAX_ABSOLUTE_TIMEOUT_SECONDS", 3)
+
+    session = create_terminal_session(
+        work_dir=os.getcwd(),
+        no_change_timeout_seconds=30,
+        terminal_type="subprocess",
+    )
+    session.initialize()
+
+    try:
+        # Run a real command to get into a clean state
+        obs = session.execute(TerminalAction(command="echo ready"))
+        assert "ready" in obs.text
+
+        # Now mock read_screen to simulate a command that keeps producing
+        # different output (so no-change timeout never fires) but never
+        # shows a PS1 prompt (so completion never triggers).
+        call_count = 0
+
+        def fake_read_screen():
+            nonlocal call_count
+            call_count += 1
+            # Return different content each time (defeats no-change timeout)
+            # but never include PS1 markers (prevents completion detection)
+            return f"output line {call_count}\nstill running..."
+
+        session.terminal.read_screen = fake_read_screen
+        # Also mock send_keys to no-op (we don't want to send a real command)
+        session.terminal.send_keys = MagicMock()
+        session.terminal.is_powershell = MagicMock(return_value=False)
+
+        start = time.time()
+        obs = session.execute(TerminalAction(command="fake-long-command"))
+        elapsed = time.time() - start
+
+        # Should have hit the safety-net timeout (~3s), not no-change (30s)
+        assert session.prev_status == TerminalCommandStatus.HARD_TIMEOUT
+        assert "timed out after 3 seconds" in obs.metadata.suffix.lower()
+        assert elapsed < 10, f"Should timeout around 3s, took {elapsed:.1f}s"
+        assert obs.metadata.exit_code == -1
+    finally:
+        session.close()

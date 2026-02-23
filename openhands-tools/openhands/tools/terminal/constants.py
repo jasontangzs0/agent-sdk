@@ -29,6 +29,11 @@ TIMEOUT_MESSAGE_TEMPLATE = (
 # How long to wait with no new output before considering it a no-change timeout
 NO_CHANGE_TIMEOUT_SECONDS = 30
 
+# Absolute maximum time any single command can run in the polling loop.
+# This is a safety net: even if the no-change timeout keeps resetting
+# (e.g., due to subtle PTY output changes), the loop will always exit.
+MAX_ABSOLUTE_TIMEOUT_SECONDS = 120
+
 # How often to poll for new output in seconds
 POLL_INTERVAL = 0.5
 HISTORY_LIMIT = 10_000

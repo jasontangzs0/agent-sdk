@@ -151,12 +151,27 @@ class RollingCondenser(PipelinableCondenserBase, ABC):
                 return self.get_condensation(view, agent_llm=agent_llm)
 
             except NoCondensationAvailableException as e:
-                logger.debug(f"No condensation available: {e}")
+                logger.warning(f"No condensation available: {e}")
 
                 if request == CondensationRequirement.SOFT:
-                    # For soft requests, we can just return the uncondensed view. This
-                    # request will _eventually_ be handled, but it's not critical that
-                    # we do so immediately.
+                    # Normal condensation failed (e.g., tool loops with thinking
+                    # blocks create atomic units that span the entire view).
+                    # Try hard context reset as a fallback before giving up.
+                    try:
+                        hard_reset_condensation = self.hard_context_reset(
+                            view, agent_llm=agent_llm
+                        )
+                        if hard_reset_condensation is not None:
+                            logger.info(
+                                "Soft condensation failed, but hard context "
+                                "reset succeeded as fallback."
+                            )
+                            return hard_reset_condensation
+                    except Exception as hard_reset_exception:
+                        logger.warning(
+                            f"Hard context reset fallback also failed: "
+                            f"{hard_reset_exception}"
+                        )
                     return view
 
                 elif request == CondensationRequirement.HARD:

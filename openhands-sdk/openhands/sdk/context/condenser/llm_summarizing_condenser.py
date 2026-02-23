@@ -60,6 +60,14 @@ class LLMSummarizingCondenser(RollingCondenser):
     size of each event string by this factor and retry.
     """
 
+    prompt_dir: str = Field(
+        default_factory=lambda: os.path.join(os.path.dirname(__file__), "prompts")
+    )
+    """Directory containing the prompt template."""
+
+    prompt_template: str = Field(default="summarizing_prompt.j2")
+    """Filename of the Jinja2 template used for summarization."""
+
     @model_validator(mode="after")
     def validate_keep_first_vs_max_size(self):
         events_from_tail = self.max_size // 2 - self.keep_first - 1
@@ -159,8 +167,8 @@ class LLMSummarizingCondenser(RollingCondenser):
         ]
 
         prompt = render_template(
-            os.path.join(os.path.dirname(__file__), "prompts"),
-            "summarizing_prompt.j2",
+            self.prompt_dir,
+            self.prompt_template,
             events=event_strings,
         )
 
